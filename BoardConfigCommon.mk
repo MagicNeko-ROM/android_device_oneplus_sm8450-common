@@ -56,18 +56,13 @@ TARGET_VENDOR_PROP += $(COMMON_PATH)/vendor.prop
 # Filesystem
 TARGET_FS_CONFIG_GEN := $(COMMON_PATH)/config.fs
 
-<<<<<<< HEAD
-=======
 # HIDL
-DEVICE_FRAMEWORK_COMPATIBILITY_MATRIX_FILE += \
-    hardware/oplus/vintf/device_framework_matrix.xml \
-    hardware/qcom-caf/common/vendor_framework_compatibility_matrix.xml
-DEVICE_FRAMEWORK_MANIFEST_FILE += $(COMMON_PATH)/framework_manifest.xml
+# local(t4-port): 解决上游 74f83a5 留下的未解决 merge conflict。
+# 取 4f56b32 一侧的内容（HEAD 一侧为空），但把 manifest 路径改成本仓实际位置 vintf/。
 DEVICE_MATRIX_FILE := hardware/qcom-caf/common/compatibility_matrix.xml
-DEVICE_MANIFEST_FILE := $(COMMON_PATH)/manifest.xml
-ODM_MANIFEST_FILES := $(COMMON_PATH)/manifest_odm.xml
+DEVICE_MANIFEST_FILE := $(COMMON_PATH)/vintf/manifest.xml
+ODM_MANIFEST_FILES := $(COMMON_PATH)/vintf/manifest_odm.xml
 
->>>>>>> 4f56b32 (sm8450-common: Import QCC system_ext blobs)
 # Kernel
 BOARD_BOOT_HEADER_VERSION := 4
 BOARD_BOOTCONFIG:= \
