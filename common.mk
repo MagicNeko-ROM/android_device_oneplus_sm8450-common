@@ -247,7 +247,6 @@ PRODUCT_PACKAGES += \
 
 # Sensors
 PRODUCT_PACKAGES += \
-    android.hardware.sensors-service.oplus-multihal \
     sensors.dynamic_sensor_hal \
     sensors.oplus
 
@@ -390,4 +389,4 @@ PRODUCT_PACKAGES += \
 
 # Inherit from the proprietary files makefile.
 $(call inherit-product, vendor/oneplus/sm8450-common/sm8450-common-vendor.mk)
-    $(AUDIO_HAL_DIR)/configs/
+    # $(AUDIO_HAL_DIR)/configs/
