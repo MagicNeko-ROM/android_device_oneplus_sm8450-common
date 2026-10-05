@@ -178,6 +178,12 @@ PRODUCT_PACKAGES += \
 PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/init/fstab.qcom:$(TARGET_COPY_OUT_VENDOR_RAMDISK)/first_stage_ramdisk/fstab.qcom
 
+# t16 诊断用：让 adb 免授权，好在设备露头的窗口里抢日志
+#   依据：build/make/tools/post_process_props.py —— ro.adb.secure=0 时会自动开 USB adb
+#   注意：这只影响可调试性，不影响开机；正式发版应去掉
+PRODUCT_DEFAULT_PROPERTY_OVERRIDES += \
+    ro.adb.secure=0
+
 # Init
 PRODUCT_PACKAGES += \
     fstab.qcom \
