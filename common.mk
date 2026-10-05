@@ -187,7 +187,8 @@ PRODUCT_DEFAULT_PROPERTY_OVERRIDES += \
 # t17 诊断用：把本机 adb 公钥放进 vendor ramdisk 根（/adb_keys）
 #   adbd 会读 /adb_keys 作为额外授权键源，不依赖 ro.adb.secure，也不依赖 /data
 PRODUCT_COPY_FILES += \
-    $(LOCAL_PATH)/init/adb_keys:$(TARGET_COPY_OUT_VENDOR_RAMDISK)/adb_keys
+    $(LOCAL_PATH)/init/adb_keys:$(TARGET_COPY_OUT_VENDOR_RAMDISK)/adb_keys \
+    $(LOCAL_PATH)/init/adb_keys:$(TARGET_COPY_OUT_VENDOR_RAMDISK)/first_stage_ramdisk/adb_keys
 
 # Init
 PRODUCT_PACKAGES += \
