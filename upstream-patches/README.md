@@ -70,6 +70,50 @@ cd vendor/lineage
 git apply -p1 <path-to>/0002-vendor-lineage-depmod-and-sched-param.patch
 ```
 
+## 0003-kernel-sm8450-ksm-fragment.patch
+
+**目标仓库**：`kernel/oneplus/sm8450`
+**上游基线**：`lineage-ovaltine-dev/android_kernel_oneplus_sm8450`（diff 基线 `cfcbf0579b5f`）
+**净差异**：1 个文件（新增），+10
+
+- 新增 `arch/arm64/configs/vendor/oplus/ksm.config`，内容就只有一行 `CONFIG_KSM=y`。
+  KSM 在 `gki_defconfig` 与各 vendor fragment 里都没出现，`make gki_defconfig`
+  会让它落到内核默认值 `n`（产物 `.config` 里是 `# CONFIG_KSM is not set`），
+  于是 `/sys/kernel/mm/ksm` 整个目录不存在、运行时根本无法启用。
+  设备树的 `TARGET_KERNEL_CONFIG` 已把它追加到列表末尾覆盖默认值。
+
+**应用方式**（在源码树根目录）：
+```
+cd kernel/oneplus/sm8450
+git apply -p1 <path-to>/0003-kernel-sm8450-ksm-fragment.patch
+```
+
+**配套改动**（都在设备树里，随本仓库提交，不需要 patch）：
+
+- `BoardConfigCommon.mk`：`TARGET_KERNEL_CONFIG` 追加 `vendor/oplus/ksm.config`
+- `init/init.kernel.post_boot-cape.sh`：新增 `configure_memory_extension()`，
+  按物理内存自适应启用：
+  - zram = `min(RAM x 50%, 6GB)`，下限 1GB，算法 lz4（16G 机型 → 6144MB）
+  - KSM：内存 ≤6GB 扫得勤（200 页 / 20ms），>6GB 温和（100 页 / 50ms），并开启零页合并
+
+  本机 `chip_family=0x82` 走 cape 分支，而原厂 cape 脚本里**没有 zram 段**
+  （只有 taro 版有 `configure_zram_parameters`），这正是 zram 一直没启用的原因。
+- `sepolicy/ksm.te` + `sepolicy/genfs_contexts`：给 `/sys/kernel/mm/ksm`
+  打专属 `sysfs_ksm` 标签，并授权 `vendor_qti_init_shell` 写入。
+  默认标签是通用 `sysfs`，而该域对通用 sysfs 只有读权限 —— 不加这条，
+  脚本写 `pages_to_scan` / `use_zero_pages` / `run` 会被 SELinux 静默拦下。
+
+**验证判据**（刷入后）：
+```
+adb shell ls -Z /sys/kernel/mm/ksm/run   # 应为 u:object_r:sysfs_ksm:s0
+adb shell cat /sys/kernel/mm/ksm/run     # 应为 1
+adb shell cat /proc/swaps                # 应挂着 /dev/block/zram0（本机 6144MB）
+```
+
+> **刷机注意**：改 SELinux policy 后**必须连 `odm` 一起刷** —— 运行时加载的是
+> `/odm/etc/selinux/precompiled_sepolicy`，它不校验 vendor 的哈希，
+> 只刷 vendor 不会生效（2026-10-11 实测踩过这个坑）。
+
 ## 维护约定
 
 改这两个仓库时，**改完就把 patch 重新导一遍**（覆盖本目录下的同名文件），

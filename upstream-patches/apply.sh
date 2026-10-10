@@ -6,7 +6,7 @@
 #     bash device/oneplus/sm8450-common/upstream-patches/apply.sh
 #     bash device/oneplus/sm8450-common/upstream-patches/apply.sh --check   # 只看会不会成，不动文件
 #
-# 为什么要这样：这两个仓库刻意不做 fork（与上游净差异只有百来行），
+# 为什么要这样：这几个仓库刻意不做 fork（与上游净差异只有百来行），
 # 但改动本身是必需的 —— display 那一份没有的话指纹就不工作。
 # 用 patch 存在设备树里，repo sync 后跑一次本脚本即可复原，不扩大与上游的差异。
 
@@ -77,6 +77,10 @@ apply_one "hardware/qcom-caf/sm8450/display" \
 apply_one "vendor/lineage" \
           "0002-vendor-lineage-depmod-and-sched-param.patch" \
           "构建系统：depmod unknown symbol 可按需容忍 + sched_param 头冲突"
+
+apply_one "kernel/oneplus/sm8450" \
+          "0003-kernel-sm8450-ksm-fragment.patch" \
+          "内核配置：打开 CONFIG_KSM（内存同页合并，配合设备树的自适应 zram）"
 
 if [ "$failed" = "0" ]; then
   printf '\033[32m全部就绪\033[0m\n'

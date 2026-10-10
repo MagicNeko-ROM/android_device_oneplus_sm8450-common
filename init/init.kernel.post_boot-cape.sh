@@ -38,6 +38,53 @@ function configure_read_ahead_kb_values() {
 	done
 }
 
+# ─────────────────────────────────────────────────────────────────────
+# 内存扩展：按物理内存自适应启用 zram + KSM（ovaltine 定制 · 2026-10-10）
+#
+# 为什么加这一段：本机 chip_family=0x82 走 cape 分支，原厂 cape 脚本里
+# 没有 zram 段（taro 版才有 configure_zram_parameters），fstab 与 init rc
+# 也没有任何 zram 条目 —— 内核虽然编了 CONFIG_ZRAM/CONFIG_ZSMALLOC，
+# 运行时 disksize 却一直是 0，swap 从未启用。KSM 同理（由内核 fragment
+# 打开 CONFIG_KSM，这里负责运行时参数与启动）。
+#   · zram = min(RAM x 50%%, 6GB)，下限 1GB，算法 lz4（低延迟）
+#   · KSM  = 内存 <=6GB 扫得勤、>6GB 扫得温和，并开启零页合并
+# 回退：删掉本函数与主流程里的 configure_memory_extension 调用即可。
+# ─────────────────────────────────────────────────────────────────────
+function configure_memory_extension() {
+	MemTotalStr=`cat /proc/meminfo | grep MemTotal`
+	MemTotal=${MemTotalStr:16:8}
+	let RamSizeGB="( $MemTotal / 1048576 ) + 1"
+
+	# ---- zram：压缩交换盘 ----
+	let zRamSizeMB="( $RamSizeGB * 1024 ) / 2"
+	if [ $zRamSizeMB -gt 6144 ]; then
+		zRamSizeMB=6144
+	fi
+	if [ $zRamSizeMB -lt 1024 ]; then
+		zRamSizeMB=1024
+	fi
+
+	if [ -f /sys/block/zram0/disksize ]; then
+		echo lz4 > /sys/block/zram0/comp_algorithm
+		echo "$zRamSizeMB""M" > /sys/block/zram0/disksize
+		mkswap /dev/block/zram0
+		swapon /dev/block/zram0 -p 32758
+	fi
+
+	# ---- KSM：同页合并（拿 CPU 换内存）----
+	if [ -d /sys/kernel/mm/ksm ]; then
+		if [ $RamSizeGB -le 6 ]; then
+			echo 200 > /sys/kernel/mm/ksm/pages_to_scan
+			echo 20 > /sys/kernel/mm/ksm/sleep_millisecs
+		else
+			echo 100 > /sys/kernel/mm/ksm/pages_to_scan
+			echo 50 > /sys/kernel/mm/ksm/sleep_millisecs
+		fi
+		echo 1 > /sys/kernel/mm/ksm/use_zero_pages
+		echo 1 > /sys/kernel/mm/ksm/run
+	fi
+}
+
 function configure_memory_parameters() {
 	# Set Memory parameters.
 	#
@@ -277,6 +324,7 @@ done
 #set s2idle as default
 echo s2idle > /sys/power/mem_sleep
 configure_memory_parameters
+configure_memory_extension
 
 #Enable LPM
 echo N > /sys/devices/system/cpu/qcom_lpm/parameters/sleep_disabled
