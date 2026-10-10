@@ -82,9 +82,9 @@ git -C vendor/lineage diff <上游基线>..HEAD -- . ':(exclude)*.before-*' \
   > device/oneplus/sm8450-common/upstream-patches/0002-vendor-lineage-depmod-and-sched-param.patch
 ```
 
-> 注：display 仓库里有一个**被误提交的备份文件**
-> `sdm/libs/core/comp_manager.cpp.before-t17-hwavail`（954 行，来自本补丁的前身提交）。
-> 上面的导出命令用 `:(exclude)*.before-*` 把它排除掉了，patch 里干净。
+> 注：display 仓库里曾有误提交的备份文件
+> `sdm/libs/core/comp_manager.cpp.before-t17-hwavail`（954 行），已于 2026-10-10 清理。
+> 导出命令仍保留 `:(exclude)*.before-*`，以免将来再被顺手提交的东西混进 patch。
 
 ---
 
