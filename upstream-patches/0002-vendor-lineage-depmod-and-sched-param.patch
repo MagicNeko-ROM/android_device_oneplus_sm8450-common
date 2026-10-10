@@ -1,0 +1,63 @@
+diff --git a/build/tasks/kernel.mk b/build/tasks/kernel.mk
+index bf5c361..07feeb3 100644
+--- a/build/tasks/kernel.mk
++++ b/build/tasks/kernel.mk
+@@ -403,9 +403,9 @@ define build-image-kernel-modules-lineage
+     $(DEPMOD) -ae -F $(KERNEL_OUT)/System.map -b $(4) 0.0 2>$(4)/depmod_stderr
+     cat $(4)/depmod_stderr >&2
+     if { grep -q "needs unknown symbol" $(4)/depmod_stderr; }; then \
+-      echo "ERROR: kernel module(s) need unknown symbol(s)" >&2; \
++      echo "WARNING: kernel module(s) need unknown symbol(s) (tolerated: BOARD_KERNEL_MODULES_LOAD_ALLOW_MISSING=true)" >&2; \
+       rm -f $(4)/depmod_stderr; \
+-      exit 1; \
++      if [ "$(BOARD_KERNEL_MODULES_LOAD_ALLOW_MISSING)" != "true" ]; then exit 1; fi; \
+     fi
+     rm -f $(4)/depmod_stderr
+     sed -e 's/\(.*modules.*\):/\/\1:/g' -e 's/ \([^ ]*modules[^ ]*\)/ \/\1/g' $(4)/lib/modules/0.0/modules.dep > $(2)/lib/modules$(6)/modules.dep
+@@ -600,7 +600,7 @@ $(TARGET_PREBUILT_INT_KERNEL): $(KERNEL_CONFIG) $(DEPMOD) $(DTC) $(KERNEL_MODULE
+ 				) \
+ 				vendor_boot_modules=$$(for m in $(BOOT_KERNEL_MODULES) $$boot_kernel_modules_deps $$boot_kernel_modules_finder_output; do \
+ 					p=$$(echo $$all_modules | tr ' ' '\n' | grep /$$m); \
+-					if [ -n "$$p" ]; then echo $$p; else echo "ERROR: $$m from BOOT_KERNEL_MODULES was not found" 1>&2 && exit 1; fi; \
++					if [ -n "$$p" ]; then echo $$p; else echo "ERROR: $$m from BOOT_KERNEL_MODULES was not found" 1>&2; $(if $(filter true,$(BOARD_KERNEL_MODULES_LOAD_ALLOW_MISSING)),true,exit 1); fi; \
+ 				done); \
+ 				[ $$? -ne 0 ] && exit 1; \
+ 				if [ -n "$$vendor_boot_modules" ]; then \
+diff --git a/tools/clean_headers.sh b/tools/clean_headers.sh
+index 44053a3..4716f00 100755
+--- a/tools/clean_headers.sh
++++ b/tools/clean_headers.sh
+@@ -6,3 +6,33 @@ export ANDROID_BUILD_TOP="$PWD"
+ ./bionic/libc/kernel/tools/clean_header.py -u \
+     "$1/usr/include/asm/signal.h" \
+     "$1/usr/include/asm-generic/signal.h"
++
++# local(22-to-16 port): drop struct sched_param from the exported copy of
++# linux/sched/types.h.
++#
++# headers_install copies the kernel uapi into usr/include/.  The 5.10.230
++# (lineage-22.1) uapi exports struct sched_param from linux/sched/types.h, and
++# bionic/libc/include/sched.h includes that very header (line 40) *and* declares
++# struct sched_param itself (line 99), because the uapi baseline this tree
++# expects only carries sched_attr there.  The result is a hard redefinition:
++#
++#   bionic/libc/include/sched.h:99:8: error: redefinition of sched_param
++#   .../generated_kernel_includes/gen/usr/include/linux/sched/types.h:7:8:
++#       note: previous definition is here
++#
++# The header cannot simply be removed: bionic and SurfaceFlinger both include it
++# by name for sched_attr.  Removing just the four-line struct declaration keeps
++# sched_attr (and the SCHED_ATTR_SIZE_VER* macros) intact and matches the newer
++# uapi baseline, without touching the kernel ABI sources.
++HDR="$1/usr/include/linux/sched/types.h"
++if [ -f "$HDR" ]; then
++    python3 - "$HDR" << "PYEOF"
++import io, re, sys
++p = sys.argv[1]
++s = io.open(p, encoding="utf-8").read()
++new, n = re.subn(r"struct sched_param \{\n\s*int sched_priority;\n\};\n", "", s)
++if n:
++    io.open(p, "w", encoding="utf-8").write(new)
++    sys.stderr.write("clean_headers: removed %d struct sched_param block(s) from %s\n" % (n, p))
++PYEOF
++fi
