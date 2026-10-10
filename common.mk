@@ -27,11 +27,16 @@ PRODUCT_PACKAGES += \
     checkpoint_gc \
     otapreopt_script
 
+# IFAA
+PRODUCT_PACKAGES += \
+    IFAAService
+
 # Audio
 PRODUCT_PACKAGES += \
     android.hardware.audio@7.0-impl \
     android.hardware.audio.effect@7.0-impl \
     android.hardware.audio.service \
+    vendor.qti.hardware.AGMIPC@1.0-service \
     android.hardware.bluetooth.audio-impl \
     android.hardware.soundtrigger@2.3-impl \
     audioadsprpcd \
@@ -58,7 +63,6 @@ PRODUCT_PACKAGES += \
     libvisualizer \
     libvolumelistener \
     sound_trigger.primary.taro \
-    vendor.qti.hardware.AGMIPC@1.0-service
 
 AUDIO_HAL_DIR := hardware/qcom-caf/sm8450/audio/primary-hal
 QCV_FAMILY_SKUS := cape taro
@@ -124,6 +128,13 @@ else
 PRODUCT_PACKAGES += \
     vendor.qti.hardware.display.composer-service
 endif
+
+# DPPS 运行时依赖：libdpps.so 的 DT_NEEDED 是 libtinyxml2-v34.so（OOS16 那一代 blob）。
+# hardware/lineage/compat 里已带这个 VNDK-34 prebuilt（vndk/v34/arm64），
+# 但 LineageOS/crDroid 默认不安装它；libdpps 走 dlopen 加载，构建期看不到该依赖，
+# 不显式安装就会变成「静默加载失败、DPPS 降级到 Dummy」。
+PRODUCT_PACKAGES += \
+    libtinyxml2-v34
 
 PRODUCT_COPY_FILES += \
     frameworks/native/data/etc/android.hardware.touchscreen.multitouch.jazzhand.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.touchscreen.multitouch.jazzhand.xml
@@ -225,14 +236,36 @@ $(call soong_config_set,lineage_health,charging_control_charging_path,/sys/class
 PRODUCT_PACKAGES += \
     vendor.lineage.livedisplay-service.oplus
 
+# SunlightEnhancement 走 SDM backend，在 sm8450 + 现有 display blob 组合下会在 Init
+# 阶段直接 abort（Failed to initialize SDM backend），导致 livedisplay-service 反复重启。
+# 上游（Bruno Martins, 4d80841 / 49e4076）的做法是关掉它，HBM 交给 display config 管。
+$(call soong_config_set,OPLUS_LINEAGE_LIVEDISPLAY_HAL,ENABLE_SE,false)
+
+# PictureAdjustment 走 SDM backend，SDMController 构造时 disp_api_init() 返回非 0，
+# 触发 LOG(FATAL) 导致 livedisplay-service 无限重启（见 tombstone: Failed to initialize SDM backend）。
+# 关掉它，让服务能起来。（上游无人修过，必须自己关）
+$(call soong_config_set,OPLUS_LINEAGE_LIVEDISPLAY_HAL,ENABLE_PA,false)
+
+# AdaptiveBacklight（自动亮度增强 / CABC）。
+# 默认分支是空数组 ⇒ vintf_fragment 不进包、cflags 落成 -DENABLE_AB=false，
+# AIDL 接口 IAdaptiveBacklight 在 VINTF 里根本不存在 ⇒ framework 拿不到它，
+# 自动调光退化成没有背光增强的裸映射，表现就是迟钝、跳变。
+# 安全性依据（service.cpp）：
+#   SDMController 只在 (ENABLE_DM || ENABLE_PA) 时构造，AB 不在该条件内；
+#   AdaptiveBacklight 自身只做 open("/dev/oplus_display") + ioctl(CABC)，
+#   不碰 SDM backend ⇒ 不会复现 SE/PA 那种 Init abort 无限重启。
+$(call soong_config_set,OPLUS_LINEAGE_LIVEDISPLAY_HAL,ENABLE_AB,true)
+
 # Media
 PRODUCT_COPY_FILES += \
     $(AUDIO_HAL_DIR)/configs/common/codec2/media_codecs_c2_audio.xml:$(TARGET_COPY_OUT_VENDOR)/etc/media_codecs_c2_audio.xml \
     $(AUDIO_HAL_DIR)/configs/common/codec2/service/1.0/c2audio.vendor.base-arm64.policy:vendor/etc/seccomp_policy/c2audio.vendor.base-arm64.policy \
     $(AUDIO_HAL_DIR)/configs/common/codec2/service/1.0/c2audio.vendor.ext-arm64.policy:vendor/etc/seccomp_policy/c2audio.vendor.ext-arm64.policy
 
-# OSENSE
+# Oplus dummy services
 PRODUCT_PACKAGES += \
+    liboplus-uah-client \
+    vendor.oplus.hardware.commondcs-service \
     vendor.oplus.hardware.osense.client-service
 
 # Overlays
@@ -272,6 +305,7 @@ PRODUCT_PACKAGES += \
 
 # Sensors
 PRODUCT_PACKAGES += \
+    android.hardware.sensors-service.oplus-multihal \
     sensors.dynamic_sensor_hal \
     sensors.oplus
 
@@ -405,3 +439,12 @@ PRODUCT_PACKAGES += \
 
 # Inherit from the proprietary files makefile.
 $(call inherit-product, vendor/oneplus/sm8450-common/sm8450-common-vendor.mk)
+
+
+
+# ===== 2026-10-06 补 touch HAL：power HAL 反复拉 vendor.oplus.hardware.touch.IOplusTouch
+#       拉不到 → HintManagerService 永久阻塞 → system_server 服务初始化卡死 → 卡开机 =====
+PRODUCT_PACKAGES += \
+    vendor-oplus-hardware-touch-V2-service \
+    touchDaemon \
+    manifest_touch_aidl.xml
