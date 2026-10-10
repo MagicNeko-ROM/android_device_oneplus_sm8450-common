@@ -85,3 +85,25 @@ git -C vendor/lineage diff <上游基线>..HEAD -- . ':(exclude)*.before-*' \
 > 注：display 仓库里有一个**被误提交的备份文件**
 > `sdm/libs/core/comp_manager.cpp.before-t17-hwavail`（954 行，来自本补丁的前身提交）。
 > 上面的导出命令用 `:(exclude)*.before-*` 把它排除掉了，patch 里干净。
+
+---
+
+## 一键应用（幂等）
+
+重建源码树、或 `repo sync` 之后，跑一次即可：
+
+```
+bash device/oneplus/sm8450-common/upstream-patches/apply.sh
+```
+
+- 会自己往上找到源码树根（认 `build/envsetup.sh`）；
+- **幂等**：已应用就跳过，不会重复打；
+- 上游代码若变了导致两边都对不上，它会明确报出来并让你人工核对，不会硬打；
+- 只看不动文件：`apply.sh --check`。
+
+这台机器的实测状态：
+
+```
+$ bash device/oneplus/sm8450-common/upstream-patches/apply.sh --check
+```
+```
