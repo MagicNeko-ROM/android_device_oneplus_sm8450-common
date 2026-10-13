@@ -1,0 +1,2 @@
+# KSM：给 /sys/kernel/mm/ksm 打专属标签（默认是通用 sysfs，没人能写）
+genfscon sysfs /kernel/mm/ksm u:object_r:sysfs_ksm:s0
