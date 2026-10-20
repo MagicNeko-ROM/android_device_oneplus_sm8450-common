@@ -315,7 +315,7 @@ vendor/lib64/libhdrdynamicootf.so|6d1c35c9e1948e80d5ffb6a5c79b4b9889d1db58
 vendor/bin/qdcmss|801d4429210c1a4f8c01f6d91f172ff063c5c307
 vendor/etc/init/qdcmss.rc|53d78d686678c4f923a9ec4ace7d4d3575b13788
 vendor/etc/snapdragon_color_libs_config.xml|ecfd798ea68959e78abfecaf1ec4220486573665
-vendor/lib64/libdpps.so|17fdc5ebb4824f455f976d54b9222d450c2aadb4
+vendor/lib64/libdpps.so|78e47ff6823bfddf10d9376a945516252ea087eb
 vendor/lib64/libgame_enhance.so|4432e47d990e98edb141becc345a92d03df26bf4
 vendor/lib64/libmemutils.so|8102e47e3d1c521bfcb1201477006cd5bc339379
 vendor/lib64/libqdcm-algo.so|4ab77288626ca1978ed2a7c15b945af6c223db9b

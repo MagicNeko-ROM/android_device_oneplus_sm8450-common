@@ -1,0 +1,340 @@
+diff --git a/Android.bp b/Android.bp
+index 18cdebd..d3871d8 100644
+--- a/Android.bp
++++ b/Android.bp
+@@ -8,6 +8,7 @@ soong_config_module_type {
+         "llvmsa",
+         "gralloc4",
+         "udfps",
++        "oplus_udfps",
+         "default",
+         "var3",
+     ],
+@@ -16,6 +17,7 @@ soong_config_module_type {
+         "enabled",
+         "srcs",
+         "header_libs",
++        "include_dirs",
+     ],
+ }
+ 
+@@ -101,6 +103,13 @@ qtidisplay_cc_defaults {
+         udfps: {
+             cflags: ["-DUDFPS_ZPOS"],
+         },
++        oplus_udfps: {
++            cflags: [
++                "-DCONNECTOR_PROP_UDFPS",
++                "-DOPLUS_FINGERPRINT_MASK",
++            ],
++            include_dirs: ["frameworks/native/services/surfaceflinger/CompositionEngine/include/compositionengine"],
++        },
+         var3 : {
+             enabled: false,
+             conditions_default: {
+diff --git a/composer/hwc_display.cpp b/composer/hwc_display.cpp
+index 5965704..79e450b 100644
+--- a/composer/hwc_display.cpp
++++ b/composer/hwc_display.cpp
+@@ -821,6 +821,14 @@ void HWCDisplay::BuildLayerStack() {
+ 
+     layer->layer_id = hwc_layer->GetId();
+     layer->layer_name = hwc_layer->GetName();
++    // [t40] 只打和 UDFPS 有关的层名（每帧全量打会把 log 冲掉），
++    //   要确认的是这些层的真实名字是否含 UDFPS_LAYER_NAME("UdfpsControllerOverlay")
++    //   / UDFPS_DIM_LAYER_NAME("Dim Layer for UDFPS")。
++    if (layer->layer_name.find("dfps") != std::string::npos ||
++        layer->layer_name.find("Dim") != std::string::npos ||
++        layer->layer_name.find("Biometric") != std::string::npos) {
++      DLOGI("t40: udfps layer id=%u name=<<%s>>", layer->layer_id, layer->layer_name.c_str());
++    }
+     layer->geometry_changes = hwc_layer->GetGeometryChanges();
+     layer_stack_.layers.push_back(layer);
+   }
+diff --git a/composer/vendor.qti.hardware.display.composer-service.rc b/composer/vendor.qti.hardware.display.composer-service.rc
+index b0dc5f9..8db9ebb 100644
+--- a/composer/vendor.qti.hardware.display.composer-service.rc
++++ b/composer/vendor.qti.hardware.display.composer-service.rc
+@@ -1,5 +1,11 @@
+ service vendor.qti.hardware.display.composer /vendor/bin/hw/vendor.qti.hardware.display.composer-service
+-    class hal animation
++    # t27b 判别实验（依据已加强）：
++    #   内核侧已实测健康 —— /dev/dri/card0、card0-DSI-1、sde-crtc-0..4、panel0-backlight 全在，
++    #   面板驱动已绑定。而 composer 拿到的错误是 -ENODEV，且 DRMResMgr 成功、只有 DRMMaster 失败
++    #   —— 这个组合指向「card0 的 master 已被别人占住」。
++    #   SurfaceFlinger 属 class main，composer 属 class hal（更晚）。这里把 composer 提前到 class core
++    #   （比 main 更早）做判别：若 DRM 报错消失 = 排序/占有问题；若照旧 = -ENODEV 另有原因。
++    class core
+     user system
+     group graphics drmrpc
+     capabilities SYS_NICE
+diff --git a/libdrmutils/drm_interface.h b/libdrmutils/drm_interface.h
+index 8814e6b..0de855b 100644
+--- a/libdrmutils/drm_interface.h
++++ b/libdrmutils/drm_interface.h
+@@ -500,6 +500,9 @@ enum struct DRMOps {
+    *      uint64_t - DSC/non-DSC Bitmask
+    */
+   CONNECTOR_SET_DSC_MODE,
++#ifdef CONNECTOR_PROP_UDFPS
++  CONNECTOR_SET_FINGERPRINT_MASK,
++#endif
+   /*
+    * Op: Reset panel features.
+    * Arg: drmModeAtomicReq - Atomic request
+diff --git a/sde-drm/drm_atomic_req.cpp b/sde-drm/drm_atomic_req.cpp
+index cdf77c1..fceb750 100644
+--- a/sde-drm/drm_atomic_req.cpp
++++ b/sde-drm/drm_atomic_req.cpp
+@@ -130,6 +130,9 @@ int DRMAtomicReq::Perform(DRMOps opcode, uint32_t obj_id, ...) {
+     case DRMOps::CONNECTOR_SET_COLORSPACE:
+     case DRMOps::CONNECTOR_SET_PANEL_MODE: 
+     case DRMOps::CONNECTOR_SET_DYN_BIT_CLK:
++#ifdef CONNECTOR_PROP_UDFPS
++    case DRMOps::CONNECTOR_SET_FINGERPRINT_MASK:
++#endif
+     case DRMOps::CONNECTOR_SET_DSC_MODE: {
+       drm_mgr_->GetConnectorMgr()->Perform(opcode, obj_id, drm_atomic_req_, args);
+     } break;
+diff --git a/sde-drm/drm_connector.cpp b/sde-drm/drm_connector.cpp
+index ba29c81..8879554 100644
+--- a/sde-drm/drm_connector.cpp
++++ b/sde-drm/drm_connector.cpp
+@@ -1262,6 +1262,25 @@ void DRMConnector::Perform(DRMOps code, drmModeAtomicReq *req, va_list args) {
+       }
+     } break;
+ 
++#ifdef CONNECTOR_PROP_UDFPS
++    case DRMOps::CONNECTOR_SET_FINGERPRINT_MASK: {
++      if (!prop_mgr_.IsPropertyAvailable(DRMProperty::FINGERPRINT_MASK)) {
++        DRM_LOGE("DRMConnector::%s: Connector %d: Fingerprint property is not available",
++                 __FUNCTION__, obj_id);
++        return;
++      }
++      uint32_t fingerprint_mask = va_arg(args, uint32_t);
++      uint32_t prop_id = prop_mgr_.GetPropertyId(DRMProperty::FINGERPRINT_MASK);
++      int ret = drmModeAtomicAddProperty(req, obj_id, prop_id, fingerprint_mask);
++      if (ret < 0) {
++        DRM_LOGE("AtomicAddProperty failed obj_id 0x%x, prop_id %d mode %d ret %d",
++                 obj_id, prop_id, fingerprint_mask, ret);
++      } else {
++        DRM_LOGD("Connector %d: Setting Fingerprint mode %d", obj_id, fingerprint_mask);
++      }
++    } break;
++#endif
++
+     case DRMOps::CONNECTOR_SET_DSC_MODE: {
+       if (!prop_mgr_.IsPropertyAvailable(DRMProperty::DSC_MODE)) {
+         return;
+diff --git a/sde-drm/drm_property.cpp b/sde-drm/drm_property.cpp
+index 5de330c..602356b 100644
+--- a/sde-drm/drm_property.cpp
++++ b/sde-drm/drm_property.cpp
+@@ -180,6 +180,9 @@ DRMProperty DRMPropertyManager::GetPropertyEnum(const std::string &name) const {
+   if (name == "dimming_bl_lut") { return DRMProperty::DIMMING_BL_LUT; }
+   if (name == "dimming_dyn_ctrl") { return DRMProperty::DIMMING_DYN_CTRL; }
+   if (name == "dimming_min_bl") { return DRMProperty::DIMMING_MIN_BL; }
++#ifdef CONNECTOR_PROP_UDFPS
++  if (name == "fingerprint_mask" || name == "hbm_enable") { return DRMProperty::FINGERPRINT_MASK; }
++#endif
+ 
+   return DRMProperty::INVALID;
+ }
+diff --git a/sde-drm/drm_property.h b/sde-drm/drm_property.h
+index aee72be..08d278a 100644
+--- a/sde-drm/drm_property.h
++++ b/sde-drm/drm_property.h
+@@ -185,6 +185,9 @@ enum struct DRMProperty {
+   DIMMING_BL_LUT,
+   DIMMING_DYN_CTRL,
+   DIMMING_MIN_BL,
++#ifdef CONNECTOR_PROP_UDFPS
++  FINGERPRINT_MASK,
++#endif
+ 
+   // Insert above
+   MAX
+diff --git a/sdm/libs/core/color_manager.cpp b/sdm/libs/core/color_manager.cpp
+index ca2de68..f960c5c 100644
+--- a/sdm/libs/core/color_manager.cpp
++++ b/sdm/libs/core/color_manager.cpp
+@@ -113,16 +113,17 @@ DisplayError ColorManagerProxy::Init(const HWResourceInfo &hw_res_info) {
+ 
+   hw_res_info_ = hw_res_info;
+ 
+-  // Load Stc manager library and retrieve its entry points.
+-  if (stc_lib_.Open(STCMGR_LIBRARY_NAME)) {
+-    if (!stc_lib_.Sym(CREATE_STC_INTERFACE_NAME, reinterpret_cast<void **>(&create_stc_intf_))) {
+-      DLOGW("Fail to retrieve = %s from %s", CREATE_STC_INTERFACE_NAME, STCMGR_LIBRARY_NAME);
+-      error = kErrorResources;
+-    }
+-  } else {
+-    DLOGW("Fail to load = %s", STCMGR_LIBRARY_NAME);
+-    error = kErrorResources;
+-  }
++  // [2026-10-05 sdcm-skip] 本机 libsnapdragoncolor-manager.so（预编译 blob，与源码编的
++  // libsdmcore.so 不同代）在 snapdragoncolor::StcOrderParserImpl::Init() 里对 null+8 写入，
++  // 触发 SIGSEGV -> composer 反复崩溃 -> SurfaceFlinger 起不来 -> 卡开机。
++  // 这里刻意不加载它，走 SDM 自带的优雅降级路径：
++  //   CreateColorManagerProxy() 开头检查 (!stc_lib_ || !create_stc_intf_) 会直接 return NULL，
++  //   而 display_base.cpp 对 color_mgr_ 为空共有 18 处判空处理（上游本来就是按可为空设计的）。
++  // 实测：跳过加载后 composer 不再崩溃、SurfaceFlinger 稳定运行、system_server 正常启动。
++  // 后续若换上同代的显示 blobs，可删除本段恢复色彩管理。
++  DLOGW("sdcm-skip: STC manager (%s) intentionally not loaded (build-time workaround)",
++        STCMGR_LIBRARY_NAME);
++  error = kErrorResources;
+ 
+   return error;
+ }
+diff --git a/sdm/libs/core/comp_manager.cpp b/sdm/libs/core/comp_manager.cpp
+index 5d96f7b..4a709dc 100644
+--- a/sdm/libs/core/comp_manager.cpp
++++ b/sdm/libs/core/comp_manager.cpp
+@@ -814,7 +814,17 @@ bool CompManager::IsRotatorSupportedFormat(LayerBufferFormat format) {
+ bool CompManager::IsDisplayHWAvailable() {
+   std::lock_guard<std::recursive_mutex> obj(comp_mgr_mutex_);
+   if (resource_intf_) {
+-    return resource_intf_->IsDisplayHWAvailable();
++    // [t41] 这里问的只是「本机到底有没有显示硬件」，而它唯一的用途是
++    //   core_impl.cpp 里 enable_null_display_ = !IsDisplayHWAvailable()。
++    //   resource_intf_ 在带扩展时是预编译 libsdmextension.so 的对象，而那份 blob 是与
++    //   本源码树不同代的东西（它要 sdm::DisplaySkuUtils::IsDisplayHWAvailable()，
++    //   本树原来那版 libdisplayskuutils.so 里根本没有），虚表不保证逐槽对齐；
++    //   一旦错位就是 pc=0，composer 起不来 = 屏幕全黑，代价太大。
++    //   而这两种情况下答案本来就该是 true：
++    //     - 本机是 OnePlus 10T，永远有面板；
++    //     - 源码兜底实现也是这么写的（resource_default.h:104 -> return true）。
++    //   所以这里给 true，不去戳 blob 的虚表。
++    return true;
+   }
+ 
+   return false;
+diff --git a/sdm/libs/core/core_impl.cpp b/sdm/libs/core/core_impl.cpp
+index b7e58a2..0f153db 100644
+--- a/sdm/libs/core/core_impl.cpp
++++ b/sdm/libs/core/core_impl.cpp
+@@ -100,7 +100,14 @@ DisplayError CoreImpl::Init() {
+   if (error != kErrorNone) {
+     DisplayError err = HandleNullDisplay();
+ 
+-    if ((err != kErrorNone) || !enable_null_display_) {
++    // t24: 原本这里是 if ((err != kErrorNone) || !enable_null_display_) —— 后半句会把设计好的降级路径否掉。
++    //   本机实测：HWInfoDRM::Init 因拿不到 DRMMaster 失败（SurfaceFlinger 属 class main，先于 composer 的 class hal 起来，
++    //   占住 /dev/dri/card0 不放），而 HandleNullDisplay() 是成功的（日志原话：
++    //   "comp manager successfully initialized with default hw resources"）。它内部把 enable_null_display_ 重算为
++    //   !IsDisplayHWAvailable()，而那个函数报「可用」——与「DRM master 拿不到」自相矛盾，
++    //   于是 CreateCore 走死：composer 崩 → rc 里 onrestart restart surfaceflinger → SF 重启又抢走 master → 循环。
++    //   去掉这个自相矛盾的判断，让降级路径生效。
++    if (err != kErrorNone) {
+       goto CleanupOnError;
+     }
+     hw_info_intf_ = new HWInfoDefault();
+diff --git a/sdm/libs/core/display_base.cpp b/sdm/libs/core/display_base.cpp
+index f04fd6b..5083b86 100644
+--- a/sdm/libs/core/display_base.cpp
++++ b/sdm/libs/core/display_base.cpp
+@@ -2478,7 +2478,17 @@ bool DisplayBase::IsSupportColorModeAttribute(const std::string &color_mode) {
+ DisplayError DisplayBase::SetColorTransform(const uint32_t length, const double *color_transform) {
+   ClientLock lock(disp_mutex_);
+   if (!color_mgr_) {
+-    return kErrorNotSupported;
++    // [t40] 本机 libsnapdragoncolor-manager.so 与源码不同代，加载即 SIGSEGV，
++    //   所以 color_manager.cpp 刻意跳过 STC 加载 -> color_mgr_ 为空。
++    //   若这里如实返回 kErrorNotSupported，composer 的
++    //   HWCDisplayBuiltIn::SetColorTransform 会把 color_tranform_failed_ 永久置位，
++    //   而 HWCDisplayBuiltIn::PreValidateDisplay() 每帧都会
++    //   MarkLayersForClientComposition() —— 整个显示栈从此 100% GPU 合成：
++    //   UDFPS 层永远到不了 DRM，OPLUS_FINGERPRINT_MASK / hbm_enable 永不置位，
++    //   指纹录入永远卡在 errno=15001。
++    //   没有色彩管理器 == 没有变换可应用，按成功处理，不要连坐整个合成路径。
++    DLOGW("no color manager, skip color transform (length %u)", length);
++    return kErrorNone;
+   }
+ 
+   if (!color_transform) {
+diff --git a/sdm/libs/core/drm/hw_device_drm.cpp b/sdm/libs/core/drm/hw_device_drm.cpp
+index 04cc73b..1ff976d 100644
+--- a/sdm/libs/core/drm/hw_device_drm.cpp
++++ b/sdm/libs/core/drm/hw_device_drm.cpp
+@@ -104,6 +104,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ #include <limits>
+ 
+ #include "hw_device_drm.h"
++
++#ifdef OPLUS_FINGERPRINT_MASK
++#define BIT(nr) (1UL << (nr))
++enum oplus_ofp_property_value {
++    OPLUS_OFP_PROPERTY_NONE = 0,
++    OPLUS_OFP_PROPERTY_DIM_LAYER = BIT(0),
++    OPLUS_OFP_PROPERTY_FINGERPRESS_LAYER = BIT(1),
++    OPLUS_OFP_PROPERTY_ICON_LAYER = BIT(2),
++    OPLUS_OFP_PROPERTY_AOD_LAYER = BIT(3),
++};
++#undef BIT
++
++#include <UdfpsExtension.h>
++#ifdef UDFPS_TOUCHED_LAYER_NAME
++#undef UDFPS_TOUCHED_LAYER_NAME
++#define UDFPS_TOUCHED_LAYER_NAME "SurfaceView[UdfpsControllerOverlay]"
++#endif
++#endif
++
+ #include "hw_info_interface.h"
+ 
+ #define __CLASS__ "HWDeviceDRM"
+@@ -1392,6 +1411,41 @@ void HWDeviceDRM::SetupAtomic(Fence::ScopedRef &scoped_ref, HWLayersInfo *hw_lay
+                        hw_layers_info->flags.geometry_changed;
+   bool update_luts = hw_layers_info->updates_mask.test(kUpdateLuts);
+ 
++#ifdef OPLUS_FINGERPRINT_MASK
++  if (IsPrimaryDisplay()) {
++    uint32_t mask_state = 0;
++    std::string matched;
++
++    for (uint32_t i = 0; i < hw_layer_count; i++) {
++      const std::string &name = hw_layers_info->hw_layers.at(i).layer_name;
++      // [t40] 不能照抄 sm8550 的字面量：那套是 Android 14 时代的
++      //   "SurfaceView[UdfpsControllerOverlay](BLAST)"，
++      // 本树（A16）实测 buffer 名是
++      //   "VRI[SurfaceView[UdfpsControllerOverlay]]#N(BLAST Consumer)N"。
++      // 只认关键字，就不会因为名字格式换代而失配。
++      if (name.find(UDFPS_DIM_LAYER_NAME) != std::string::npos) {
++        mask_state |= OPLUS_OFP_PROPERTY_DIM_LAYER;
++        matched += " DIM<<";
++        matched += name;
++        matched += ">>";
++      } else if (name.find(UDFPS_LAYER_NAME) != std::string::npos) {
++        mask_state |= OPLUS_OFP_PROPERTY_FINGERPRESS_LAYER;
++        matched += " FINGERPRESS<<";
++        matched += name;
++        matched += ">>";
++      }
++    }
++
++    if (current_mask_state_ != mask_state) {
++      uint32_t old_mask = current_mask_state_;
++      current_mask_state_ = mask_state;
++      DLOGW("ofp-mask: 0x%x -> 0x%x (layers=%u)%s", old_mask, mask_state, hw_layer_count,
++            matched.c_str());
++      drm_atomic_intf_->Perform(DRMOps::CONNECTOR_SET_FINGERPRINT_MASK, token_.conn_id, mask_state);
++    }
++  }
++#endif
++
+   if (hw_panel_info_.partial_update && update_config) {
+     if (IsFullFrameUpdate(*hw_layers_info)) {
+       ResetROI();
+diff --git a/sdm/libs/core/drm/hw_device_drm.h b/sdm/libs/core/drm/hw_device_drm.h
+index 5fc3dd6..613a9f8 100644
+--- a/sdm/libs/core/drm/hw_device_drm.h
++++ b/sdm/libs/core/drm/hw_device_drm.h
+@@ -361,6 +361,9 @@ class HWDeviceDRM : public HWInterface {
+   bool autorefresh_ = false;
+   std::unique_ptr<HWColorManagerDrm> hw_color_mgr_ = {};
+   bool seamless_mode_switch_ = false;
++#ifdef CONNECTOR_PROP_UDFPS
++  uint32_t current_mask_state_ = 0;
++#endif
+ };
+ 
+ }  // namespace sdm
