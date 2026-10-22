@@ -38,6 +38,63 @@ function configure_read_ahead_kb_values() {
 	done
 }
 
+# ─────────────────────────────────────────────────────────────────────
+# 内存扩展：按物理内存自适应启用 zram（ovaltine 定制 · 2026-10-10）
+#
+# 2026-10-11 变更：KSM 段按主人指令关闭 —— 内核侧同步取消 CONFIG_KSM
+#   （BoardConfigCommon.mk 不再引用 vendor/oplus/ksm.config），本函数只留 zram。
+#
+# 为什么加这一段：本机 chip_family=0x82 走 cape 分支，原厂 cape 脚本里
+# 没有 zram 段（taro 版才有 configure_zram_parameters），fstab 与 init rc
+# 也没有任何 zram 条目 —— 内核虽然编了 CONFIG_ZRAM/CONFIG_ZSMALLOC，
+# 运行时 disksize 却一直是 0，swap 从未启用。
+#   · zram = min(RAM x 50%%, 6GB)，下限 1GB，算法 lz4（低延迟）
+# 回退：删掉本函数与主流程里的 configure_memory_extension 调用即可。
+# ─────────────────────────────────────────────────────────────────────
+function configure_memory_extension() {
+	MemTotalStr=`cat /proc/meminfo | grep MemTotal`
+	MemTotal=${MemTotalStr:16:8}
+	let RamSizeGB="( $MemTotal / 1048576 ) + 1"
+
+	# ---- zram：压缩交换盘 ----
+	let zRamSizeMB="( $RamSizeGB * 1024 ) / 2"
+	if [ $zRamSizeMB -gt 6144 ]; then
+		zRamSizeMB=6144
+	fi
+	if [ $zRamSizeMB -lt 1024 ]; then
+		zRamSizeMB=1024
+	fi
+
+	if [ -f /sys/block/zram0/disksize ]; then
+		echo lz4 > /sys/block/zram0/comp_algorithm
+		echo "$zRamSizeMB""M" > /sys/block/zram0/disksize
+		mkswap /dev/block/zram0
+		swapon /dev/block/zram0 -p 32758
+	fi
+
+	# ---- KSM：2026-10-11 按主人指令关闭，本段已移除 ----
+	# 内核不再编入 CONFIG_KSM，/sys/kernel/mm/ksm 不会存在。
+	# 恢复步骤：BoardConfigCommon.mk 的 KSM 片段引用加回 + apply.sh 里 0003 取消注释。
+}
+
+# ─────────────────────────────────────────────────────────────────────
+# 网络拥塞控制：BBR（ovaltine 定制 · 2026-10-11）
+#
+# 内核侧由 vendor/oplus/lineage_net.config 编入 CONFIG_TCP_CONG_BBR=y，
+# 这一段把运行时默认切过去。fq 是 BBR 的推荐搭配队列，
+# gki_defconfig 已含 CONFIG_NET_SCH_FQ=y，这里一并设为默认 qdisc。
+# 回退：删掉本函数与主流程里的 configure_network_tuning 调用即可
+#       （内核侧回退见 BoardConfigCommon.mk 顶部注释）。
+# ─────────────────────────────────────────────────────────────────────
+function configure_network_tuning() {
+	if grep -qw bbr /proc/sys/net/ipv4/tcp_available_congestion_control 2>/dev/null; then
+		echo bbr > /proc/sys/net/ipv4/tcp_congestion_control
+	fi
+	if [ -f /proc/sys/net/core/default_qdisc ]; then
+		echo fq > /proc/sys/net/core/default_qdisc
+	fi
+}
+
 function configure_memory_parameters() {
 	# Set Memory parameters.
 	#
@@ -277,6 +334,8 @@ done
 #set s2idle as default
 echo s2idle > /sys/power/mem_sleep
 configure_memory_parameters
+configure_memory_extension
+configure_network_tuning
 
 #Enable LPM
 echo N > /sys/devices/system/cpu/qcom_lpm/parameters/sleep_disabled

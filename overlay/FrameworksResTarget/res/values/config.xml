@@ -57,8 +57,18 @@
          when registering authenticators with BiometricService. Format must be ID:Modality:Strength,
          where: IDs are unique per device, Modality as defined in BiometricAuthenticator.java,
          and Strength as defined in Authenticators.java -->
+    <!-- 2026-10-10 汐 · 故意留空，不要加回去。
+         本机指纹是 AIDL HAL：android.hardware.biometrics.fingerprint.IFingerprint/default
+         （VINTF 声明在 /odm/etc/vintf/manifest/manifest_oplus_fingerprint_aidl_v2.xml）。
+         AuthService 拿这个数组的【长度】决定走哪条路：
+             new FingerprintSensorConfigurations(!(hidlConfigStrings != null
+                     && hidlConfigStrings.length > 0));
+         非空 -> false -> "Adding HIDL configs" -> 去建一个本机根本不存在的 HIDL @2.1 桥
+                          -> NoSuchElementException 无限重试 -> 设置里没有指纹 + 系统卡顿
+         留空 -> true  -> "Adding AIDL configs"  -> 正常
+         AOSP framework-res 的默认值本来就是空数组（那行 item 是注释掉的），
+         LineageOS 的 sm8450/sm8550/sm8650-common 也都不带这个数组。 -->
     <string-array name="config_biometric_sensors" translatable="false">
-        <item>0:2:15</item> <!-- ID0:Fingerprint:Strong -->
     </string-array>
 
 </resources>

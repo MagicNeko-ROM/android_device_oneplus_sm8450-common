@@ -1,0 +1,16 @@
+diff --git a/arch/arm64/configs/vendor/oplus/ksm.config b/arch/arm64/configs/vendor/oplus/ksm.config
+new file mode 100644
+index 000000000000..d7706b339c20
+--- /dev/null
++++ b/arch/arm64/configs/vendor/oplus/ksm.config
+@@ -0,0 +1,10 @@
++# 内存回收增强（ovaltine 定制 · 2026-10-10）
++#
++# 为什么必须显式写这一行：
++#   KSM 在 gki_defconfig 与各 vendor fragment 里都没出现，make gki_defconfig
++#   会让它落到内核默认值 n（产物 .config 里是 "# CONFIG_KSM is not set"），
++#   于是 /sys/kernel/mm/ksm 整个目录不存在，运行时根本无法启用。
++#   这里补一个 fragment 挂在 TARGET_KERNEL_CONFIG 末尾，覆盖默认值。
++# 依赖：KSM 会 select XXHASH，本机型已是 CONFIG_XXHASH=y，无额外影响。
++# 回退：删掉本文件，并去掉 BoardConfigCommon.mk 里的 vendor/oplus/ksm.config。
++CONFIG_KSM=y

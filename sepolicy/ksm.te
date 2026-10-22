@@ -1,0 +1,24 @@
+# KSM（内核同页合并）—— 让 post_boot 脚本能开机把它拉起来
+#
+# 背景（2026-10-10 实测，ovaltine）：
+#   /sys/kernel/mm/ksm/* 默认落在通用 sysfs 类型上，而 vendor_qti_init_shell
+#   对通用 sysfs 只有读权限（AOSP: allow init sysfs_type:file { getattr read }），
+#   于是 init.kernel.post_boot-cape.sh 里 configure_memory_extension() 写
+#   pages_to_scan / sleep_millisecs / use_zero_pages / run 时全被 SELinux 拦下。
+#   症状：内核编了 CONFIG_KSM、/sys/kernel/mm/ksm 目录也在，但 run 始终为 0。
+#   （zram 不受影响：/sys/block/zram0 有专属 sysfs_zram 类型，QTI 已授权。）
+#
+# 做法照 sysfs_zram 的先例：给 KSM 节点一个专属类型，再单独授权。
+# 回退：删掉本文件，以及同目录 genfs_contexts 里那行 genfscon。
+
+type sysfs_ksm, fs_type, sysfs_type;
+
+# post_boot 脚本的执行域：需要写 KSM 参数
+allow vendor_qti_init_shell sysfs_ksm:dir r_dir_perms;
+allow vendor_qti_init_shell sysfs_ksm:file rw_file_perms;
+
+# init / vendor_init：只读，便于开机观察与排障
+allow init sysfs_ksm:dir r_dir_perms;
+allow init sysfs_ksm:file r_file_perms;
+allow vendor_init sysfs_ksm:dir r_dir_perms;
+allow vendor_init sysfs_ksm:file r_file_perms;

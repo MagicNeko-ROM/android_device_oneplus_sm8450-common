@@ -1,0 +1,4 @@
+# t32 判别实验：本机 DRM 打不开 —— audit_enabled=0 导致 AVC 不落日志，
+#   所以「日志里没有 composer 的拒绝」不能证明没被拦。
+#   这里把 composer 域设为 permissive 做判别：若 DRM 报错消失 = SELinux 拒绝；若照旧 = 另有原因。
+permissive hal_graphics_composer_default;
