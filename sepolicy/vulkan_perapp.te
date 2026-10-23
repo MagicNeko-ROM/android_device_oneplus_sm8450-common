@@ -1,0 +1,29 @@
+# Per-application Vulkan ICD selection.
+#
+# libvulkan lives inside the calling process and reads
+#   /data/misc/vulkan/per_app.conf
+# (falling back to ro.hardware.vulkan) to decide which ICD to load. Because
+# that reader can be any app or native service, the read permission has to
+# cover every domain that can create a Vulkan instance - not just
+# untrusted_app. The `appdomain` macro covers untrusted_app, platform_app,
+# priv_app, system_app and friends; gpuservice runs in its own domain and is
+# added explicitly.
+type vulkan_perapp_conf_file, file_type, data_file_type, core_data_file_type;
+
+# Any app process that creates a Vulkan instance.
+allow appdomain vulkan_perapp_conf_file:dir { search r_dir_perms };
+allow appdomain vulkan_perapp_conf_file:file r_file_perms;
+
+# gpuservice backs `cmd gpu` / the Vulkan reporting path.
+allow gpuservice vulkan_perapp_conf_file:dir { search r_dir_perms };
+allow gpuservice vulkan_perapp_conf_file:file r_file_perms;
+
+# Owner: the privileged settings app rewrites the mapping.
+allow system_app vulkan_perapp_conf_file:dir { create_dir_perms r_dir_perms };
+allow system_app vulkan_perapp_conf_file:file { create_file_perms rw_file_perms };
+
+# init creates /data/misc/vulkan at boot. setattr is required for the
+# chown/chmod to succeed; without it init silently leaves the directory owned
+# by root and the settings app cannot write into it.
+allow init vulkan_perapp_conf_file:dir { create_dir_perms setattr };
+allow init vulkan_perapp_conf_file:file { create_file_perms setattr };
