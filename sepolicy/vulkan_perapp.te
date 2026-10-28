@@ -22,8 +22,21 @@ allow gpuservice vulkan_perapp_conf_file:file r_file_perms;
 allow system_app vulkan_perapp_conf_file:dir { create_dir_perms r_dir_perms };
 allow system_app vulkan_perapp_conf_file:file { create_file_perms rw_file_perms };
 
-# init creates /data/misc/vulkan at boot. setattr is required for the
-# chown/chmod to succeed; without it init silently leaves the directory owned
-# by root and the settings app cannot write into it.
-allow init vulkan_perapp_conf_file:dir { create_dir_perms setattr };
-allow init vulkan_perapp_conf_file:file { create_file_perms setattr };
+# init creates /data/misc/vulkan from a *system* rc file (vulkan_perapp.rc),
+# not from a vendor one. Commands in vendor rc files run as vendor_init, which
+# has no write on /data/misc, so every boot logged:
+#   avc: denied { write } for comm="init" name="misc"
+#     scontext=u:r:vendor_init:s0 tcontext=u:object_r:system_data_file:s0
+# and the mkdir was dropped on the floor. The real init domain already creates
+# /data/misc/keystore and friends, so it is the right owner for this one.
+# setattr covers the chown/chmod; relabelfrom/relabelto are what the trailing
+# restorecon needs to give the directory its own type, because vendor policy
+# cannot declare a type_transition from a platform domain.
+allow init vulkan_perapp_conf_file:dir { create_dir_perms setattr relabelfrom relabelto };
+allow init vulkan_perapp_conf_file:file { create_file_perms setattr relabelfrom relabelto };
+allow init system_data_file:dir relabelfrom;
+
+# Root shell (adb root / su) is the escape hatch for editing the mapping
+# without a settings UI: no app has to be involved to switch an ICD.
+allow su vulkan_perapp_conf_file:dir { search r_dir_perms write add_name };
+allow su vulkan_perapp_conf_file:file { rw_file_perms create_file_perms };

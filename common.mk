@@ -239,12 +239,12 @@ PRODUCT_PACKAGES += \
 # SunlightEnhancement 走 SDM backend，在 sm8450 + 现有 display blob 组合下会在 Init
 # 阶段直接 abort（Failed to initialize SDM backend），导致 livedisplay-service 反复重启。
 # 上游（Bruno Martins, 4d80841 / 49e4076）的做法是关掉它，HBM 交给 display config 管。
-$(call soong_config_set,OPLUS_LINEAGE_LIVEDISPLAY_HAL,ENABLE_SE,false)
+$(call soong_config_set_bool,OPLUS_LINEAGE_LIVEDISPLAY_HAL,ENABLE_SE,false)
 
 # PictureAdjustment 走 SDM backend，SDMController 构造时 disp_api_init() 返回非 0，
 # 触发 LOG(FATAL) 导致 livedisplay-service 无限重启（见 tombstone: Failed to initialize SDM backend）。
 # 关掉它，让服务能起来。（上游无人修过，必须自己关）
-$(call soong_config_set,OPLUS_LINEAGE_LIVEDISPLAY_HAL,ENABLE_PA,false)
+$(call soong_config_set_bool,OPLUS_LINEAGE_LIVEDISPLAY_HAL,ENABLE_PA,false)
 
 # [2026-10-12] DisplayModes（色彩模式）：走 LiveDisplay HAL 这条路
 #   （硬编码 4 档 Vivid/Natural/Cinematic/Brilliant），绕开 composer 的
@@ -252,7 +252,7 @@ $(call soong_config_set,OPLUS_LINEAGE_LIVEDISPLAY_HAL,ENABLE_PA,false)
 #   配套修复见 hardware/oplus/aidl/livedisplay/DisplayModes.cpp：
 #   去掉构造时自动 setDisplayMode —— 原实现一启动就把显示切到系统不认的模式。
 #   ENABLE_DM=true 同时会把 VINTF 声明 oplus-dm.xml 带进包（框架才看得到 IDisplayModes）。
-$(call soong_config_set,OPLUS_LINEAGE_LIVEDISPLAY_HAL,ENABLE_DM,true)
+$(call soong_config_set_bool,OPLUS_LINEAGE_LIVEDISPLAY_HAL,ENABLE_DM,true)
 
 # AdaptiveBacklight（自动亮度增强 / CABC）。
 # 默认分支是空数组 ⇒ vintf_fragment 不进包、cflags 落成 -DENABLE_AB=false，
@@ -262,7 +262,7 @@ $(call soong_config_set,OPLUS_LINEAGE_LIVEDISPLAY_HAL,ENABLE_DM,true)
 #   SDMController 只在 (ENABLE_DM || ENABLE_PA) 时构造，AB 不在该条件内；
 #   AdaptiveBacklight 自身只做 open("/dev/oplus_display") + ioctl(CABC)，
 #   不碰 SDM backend ⇒ 不会复现 SE/PA 那种 Init abort 无限重启。
-$(call soong_config_set,OPLUS_LINEAGE_LIVEDISPLAY_HAL,ENABLE_AB,true)
+$(call soong_config_set_bool,OPLUS_LINEAGE_LIVEDISPLAY_HAL,ENABLE_AB,true)
 
 # Media
 PRODUCT_COPY_FILES += \
@@ -413,7 +413,7 @@ PRODUCT_COPY_FILES += \
     frameworks/native/data/etc/android.software.verified_boot.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.software.verified_boot.xml
 
 # Vibrator
-$(call soong_config_set,OPLUS_LINEAGE_VIBRATOR_HAL,USE_EFFECT_STREAM,true)
+$(call soong_config_set_bool,OPLUS_LINEAGE_VIBRATOR_HAL,USE_EFFECT_STREAM,true)
 
 PRODUCT_PACKAGES += \
     vendor.qti.hardware.vibrator.service.oplus

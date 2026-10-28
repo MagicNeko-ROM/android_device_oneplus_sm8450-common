@@ -154,7 +154,8 @@ debug.sf.high_fps_late_sf_phase_offset_ns=-2000000
 debug.sf.latch_unsignaled=1
 debug.sf.treat_170m_as_sRGB=1
 ro.hardware.egl=adreno
-ro.hardware.vulkan=adreno
+# ro.hardware.vulkan is set by device/oneplus/ovaltine/device.mk
+# (vulkan.switcher), not here.
 ro.opengles.version=196610
 ro.surface_flinger.force_hwc_copy_for_virtual_displays=true
 ro.surface_flinger.has_HDR_display=true

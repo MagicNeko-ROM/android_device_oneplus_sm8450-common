@@ -24,6 +24,81 @@ AB_OTA_PARTITIONS += \
     vendor_boot \
     vendor_dlkm
 
+# ---------------------------------------------------------------------------
+# Baseline firmware inside the OTA payload.
+#
+# AB_OTA_PARTITIONS drives what the OTA writes. ota_utils.py resolves each
+# partition image from IMAGES / PREBUILT_IMAGES / RADIO, and the firmware
+# images live in RADIO/ because vendor/oneplus/ovaltine/Android.mk registers
+# them via add-radio-file-sha1-checked. Listing the partitions here is
+# therefore all that is needed to carry them in the sideloaded package.
+#
+# Baseline: CPH2415_15.0.0.700(EX01), 24 images.
+# NOTE: this makes recovery sideload write abl/xbl/tz/modem/... (boot chain and
+# baseband). Anti-rollback is irreversible; only ship this when the baseline
+# matches the device. Set OVALTINE_FIRMWARE_IN_OTA=false to build a plain OTA.
+OVALTINE_FIRMWARE_IN_OTA ?= true
+ifeq ($(OVALTINE_FIRMWARE_IN_OTA),true)
+AB_OTA_PARTITIONS += \
+    abl \
+    aop \
+    aop_config \
+    bluetooth \
+    cpucp \
+    devcfg \
+    dsp \
+    engineering_cdt \
+    featenabler \
+    hyp \
+    imagefv \
+    keymaster \
+    modem \
+    oplus_sec \
+    oplusstanvbk \
+    qupfw \
+    shrm \
+    splash \
+    tz \
+    uefi \
+    uefisecapp \
+    xbl \
+    xbl_config \
+    xbl_ramdump \
+    # --- end firmware ---
+
+# BOARD_PACK_RADIOIMAGES is what actually moves RADIO/<x>.img into IMAGES/ in
+# target_files; AB_OTA_PARTITIONS alone only lists what to write, and the
+# payload generator silently skips partitions whose image it cannot find
+# (GetPartitionImages uses allow_empty=True).
+BOARD_PACK_RADIOIMAGES := \
+    abl \
+    aop \
+    aop_config \
+    bluetooth \
+    cpucp \
+    devcfg \
+    dsp \
+    engineering_cdt \
+    featenabler \
+    hyp \
+    imagefv \
+    keymaster \
+    modem \
+    oplus_sec \
+    oplusstanvbk \
+    qupfw \
+    shrm \
+    splash \
+    tz \
+    uefi \
+    uefisecapp \
+    xbl \
+    xbl_config \
+    xbl_ramdump \
+
+endif
+
+
 # Architecture
 TARGET_ARCH := arm64
 TARGET_ARCH_VARIANT := armv8-a-branchprot

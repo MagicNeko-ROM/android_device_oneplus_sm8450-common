@@ -8,3 +8,5 @@
 # The proxy fingerprint HAL runs in the same domain as the original
 # implementation. It needs the same exec type for that, not vendor_file.
 /vendor/bin/android\.hardware\.biometrics\.fingerprint-service\.proxy    u:object_r:hal_fingerprint_default_exec:s0
+# The ICD switcher and its image-default config.
+/vendor/lib(64)?/hw/vulkan\.switcher\.so    u:object_r:same_process_hal_file:s0
