@@ -244,15 +244,24 @@ $(call soong_config_set_bool,OPLUS_LINEAGE_LIVEDISPLAY_HAL,ENABLE_SE,false)
 # PictureAdjustment 走 SDM backend，SDMController 构造时 disp_api_init() 返回非 0，
 # 触发 LOG(FATAL) 导致 livedisplay-service 无限重启（见 tombstone: Failed to initialize SDM backend）。
 # 关掉它，让服务能起来。（上游无人修过，必须自己关）
+# [2026-11-01] 打开 PA 做验证：SDM 已被 composer 独占，预期 hctx_=0 静默失效，但不崩
+# [2026-11-01] PA 关闭：实测 PictureAdjustment::PictureAdjustment 在 backend 未就绪时
+# 直接 LOG(FATAL) abort（Abort message: PictureAdjustment backend not ready, exiting.），
+# 导致 livedisplay-service 无限 SIGABRT 并把 AF 一起拖死（同一 binary）。
+# 根因是 DRM master 被 composer 独占，PA 永远拿不到 SDM，故关闭。
 $(call soong_config_set_bool,OPLUS_LINEAGE_LIVEDISPLAY_HAL,ENABLE_PA,false)
 
-# [2026-10-12] DisplayModes（色彩模式）：走 LiveDisplay HAL 这条路
-#   （硬编码 4 档 Vivid/Natural/Cinematic/Brilliant），绕开 composer 的
-#   libsnapdragoncolor-manager.so（那个跨代必崩、又无同代 blob 可换）。
-#   配套修复见 hardware/oplus/aidl/livedisplay/DisplayModes.cpp：
-#   去掉构造时自动 setDisplayMode —— 原实现一启动就把显示切到系统不认的模式。
-#   ENABLE_DM=true 同时会把 VINTF 声明 oplus-dm.xml 带进包（框架才看得到 IDisplayModes）。
-$(call soong_config_set_bool,OPLUS_LINEAGE_LIVEDISPLAY_HAL,ENABLE_DM,true)
+# [2026-11-01] 打开 AntiFlicker（DC 调光/防闪烁）。只走 /dev/oplus_display 的 PWM_TURBO 与
+# DIMLAYER_BL_EN ioctl（驱动 panel_ioctls[] 均有实现），不碰 SDM backend。
+$(call soong_config_set_bool,OPLUS_LINEAGE_LIVEDISPLAY_HAL,ENABLE_AF,true)
+
+#   ENABLE_DM=false：本面板（BOE rm692e5）的 DTSI 里没有任何 mdss-dsi-seed-* 命令，
+#   IDisplayModes 走 PANEL_IOCTL_SET_SEED 是空转；更要紧的是 dm.xml 一进包，设备就带上
+#   lineagehardware:FEATURE_DISPLAY_MODES，Settings 里 display_settings.xml 的
+#   LineagePartsPreference(replacesKey="color_mode") 会把 AOSP 的「颜色」项顶掉，
+#   于是两边都用不了。撤掉它之后 AOSP ColorModePreference 才会出现，
+#   配合 config_availableColorModes=[0,7,9] 对应 SDM STC 实际提供的 NATIVE/SRGB/DISPLAY_P3。
+$(call soong_config_set_bool,OPLUS_LINEAGE_LIVEDISPLAY_HAL,ENABLE_DM,false)
 
 # AdaptiveBacklight（自动亮度增强 / CABC）。
 # 默认分支是空数组 ⇒ vintf_fragment 不进包、cflags 落成 -DENABLE_AB=false，
